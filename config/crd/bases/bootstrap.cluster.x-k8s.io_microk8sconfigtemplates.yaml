@@ -3,8 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.8.0
-  creationTimestamp: null
+    controller-gen.kubebuilder.io/version: v0.17.2
   name: microk8sconfigtemplates.bootstrap.cluster.x-k8s.io
 spec:
   group: bootstrap.cluster.x-k8s.io
@@ -22,14 +21,19 @@ spec:
           API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
@@ -46,23 +50,25 @@ spec:
                           are the configurations necessary for the init command
                         properties:
                           apiVersion:
-                            description: 'APIVersion defines the versioned schema
-                              of this representation of an object. Servers should
-                              convert recognized schemas to the latest internal value,
-                              and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+                            description: |-
+                              APIVersion defines the versioned schema of this representation of an object.
+                              Servers should convert recognized schemas to the latest internal value, and
+                              may reject unrecognized values.
+                              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
                             type: string
                           kind:
-                            description: 'Kind is a string value representing the
-                              REST resource this object represents. Servers may infer
-                              this from the endpoint the client submits requests to.
-                              Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+                            description: |-
+                              Kind is a string value representing the REST resource this object represents.
+                              Servers may infer this from the endpoint the client submits requests to.
+                              Cannot be updated.
+                              In CamelCase.
+                              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
                             type: string
                           portCompatibilityRemap:
                             default: true
-                            description: PortCompatibilityRemap switches the default
-                              ports used by cluster agent (25000) and dqlite (19001)
-                              to 30000 and 2379. The default ports are blocked via
-                              security groups in several infra providers.
+                            description: |-
+                              PortCompatibilityRemap switches the default ports used by cluster agent (25000) and dqlite (19001)
+                              to 30000 and 2379. The default ports are blocked via security groups in several infra providers.
                             type: boolean
                         type: object
                       initConfiguration:
@@ -77,15 +83,16 @@ spec:
                               type: string
                             type: array
                           apiVersion:
-                            description: 'APIVersion defines the versioned schema
-                              of this representation of an object. Servers should
-                              convert recognized schemas to the latest internal value,
-                              and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+                            description: |-
+                              APIVersion defines the versioned schema of this representation of an object.
+                              Servers should convert recognized schemas to the latest internal value, and
+                              may reject unrecognized values.
+                              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
                             type: string
                           bootCommands:
-                            description: BootCommands is a list of commands to run
-                              during boot. These will be injected into the `bootcmd`
-                              section of cloud-init.
+                            description: |-
+                              BootCommands is a list of commands to run during boot.
+                              These will be injected into the `bootcmd` section of cloud-init.
                             items:
                               type: string
                             type: array
@@ -145,25 +152,27 @@ spec:
                             minimum: 1
                             type: integer
                           kind:
-                            description: 'Kind is a string value representing the
-                              REST resource this object represents. Servers may infer
-                              this from the endpoint the client submits requests to.
-                              Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+                            description: |-
+                              Kind is a string value representing the REST resource this object represents.
+                              Servers may infer this from the endpoint the client submits requests to.
+                              Cannot be updated.
+                              In CamelCase.
+                              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
                             type: string
                           noProxy:
                             description: The optional no proxy configuration
                             type: string
                           postRunCommands:
-                            description: PostRunCommands is a list of commands to
-                              run after installing MicroK8s. These will be injected
-                              into the `runcmd` section of cloud-init.
+                            description: |-
+                              PostRunCommands is a list of commands to run after installing MicroK8s.
+                              These will be injected into the `runcmd` section of cloud-init.
                             items:
                               type: string
                             type: array
                           preRunCommands:
-                            description: PreRunCommands is a list of commands to run
-                              before installing MicroK8s. These will be injected into
-                              the `runcmd` section of cloud-init.
+                            description: |-
+                              PreRunCommands is a list of commands to run before installing MicroK8s.
+                              These will be injected into the `runcmd` section of cloud-init.
                             items:
                               type: string
                             type: array
@@ -192,8 +201,9 @@ spec:
                             description: The snap store proxy ID
                             type: string
                           snapstoreProxyScheme:
-                            description: The snap store proxy domain's scheme, e.g.
-                              "http" or "https" without "://" Defaults to "http".
+                            description: |-
+                              The snap store proxy domain's scheme, e.g. "http" or "https" without "://"
+                              Defaults to "http".
                             type: string
                         type: object
                     type: object
@@ -210,9 +220,3 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []

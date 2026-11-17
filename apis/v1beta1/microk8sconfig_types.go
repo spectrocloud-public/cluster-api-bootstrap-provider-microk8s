@@ -18,7 +18,6 @@ package v1beta1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
 // JoinConfiguration contains elements describing a particular node.
@@ -172,7 +171,7 @@ type MicroK8sConfigStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// +optional
-	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -201,11 +200,11 @@ func init() {
 }
 
 // GetConditions returns the set of conditions for this object.
-func (c *MicroK8sConfig) GetConditions() clusterv1.Conditions {
+func (c *MicroK8sConfig) GetConditions() []metav1.Condition {
 	return c.Status.Conditions
 }
 
 // SetConditions sets the conditions on this object.
-func (c *MicroK8sConfig) SetConditions(conditions clusterv1.Conditions) {
+func (c *MicroK8sConfig) SetConditions(conditions []metav1.Condition) {
 	c.Status.Conditions = conditions
 }

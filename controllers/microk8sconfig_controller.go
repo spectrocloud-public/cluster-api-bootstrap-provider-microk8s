@@ -45,9 +45,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/utils/pointer"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	bsutil "sigs.k8s.io/cluster-api/bootstrap/util"
-	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
 	"sigs.k8s.io/cluster-api/feature"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
@@ -178,12 +177,14 @@ func (r *MicroK8sConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Attempt to Patch the KubeadmConfig object and status after each reconciliation if no error occurs.
 	defer func() {
-		conditions.SetSummary(config,
-			conditions.WithConditions(
-				bootstrapclusterxk8siov1beta1.DataSecretAvailableCondition,
-				bootstrapclusterxk8siov1beta1.CertificatesAvailableCondition,
-			),
-		)
+		if err := conditions.SetSummaryCondition(config, config, string(clusterv1.ReadyCondition),
+			conditions.ForConditionTypes{
+				string(bootstrapclusterxk8siov1beta1.DataSecretAvailableCondition),
+				string(bootstrapclusterxk8siov1beta1.CertificatesAvailableCondition),
+			},
+		); err != nil {
+			log.Error(err, "Failed to set summary condition")
+		}
 		// Patch ObservedGeneration only if the reconciliation completed successfully
 		patchOpts := []patch.Option{}
 		if rerr == nil {
@@ -199,16 +200,24 @@ func (r *MicroK8sConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	switch {
 	// Wait for the infrastructure to be ready.
-	case !cluster.Status.InfrastructureReady:
+	case cluster.Status.Initialization.InfrastructureProvisioned == nil || !*cluster.Status.Initialization.InfrastructureProvisioned:
 		log.Info("Cluster infrastructure is not ready, waiting")
-		conditions.MarkFalse(config, bootstrapclusterxk8siov1beta1.DataSecretAvailableCondition, v1beta1.WaitingForClusterInfrastructureReason, clusterv1.ConditionSeverityInfo, "")
+		conditions.Set(config, metav1.Condition{
+			Type:   string(bootstrapclusterxk8siov1beta1.DataSecretAvailableCondition),
+			Status: metav1.ConditionFalse,
+			Reason: v1beta1.WaitingForClusterInfrastructureReason,
+		})
 		return ctrl.Result{}, nil
 	// Reconcile status for machines that already have a secret reference, but our status isn't up to date.
 	// This case solves the pivoting scenario (or a backup restore) which doesn't preserve the status subresource on objects.
 	case configOwner.DataSecretName() != nil && (!config.Status.Ready || config.Status.DataSecretName == nil):
 		config.Status.Ready = true
 		config.Status.DataSecretName = configOwner.DataSecretName()
-		conditions.MarkTrue(config, bootstrapclusterxk8siov1beta1.DataSecretAvailableCondition)
+		conditions.Set(config, metav1.Condition{
+			Type:   string(bootstrapclusterxk8siov1beta1.DataSecretAvailableCondition),
+			Status: metav1.ConditionTrue,
+			Reason: "DataSecretGenerated",
+		})
 		return ctrl.Result{}, nil
 	// Status is ready means a config has been generated.
 	case config.Status.Ready:
@@ -221,7 +230,7 @@ func (r *MicroK8sConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Note: can't use IsFalse here because we need to handle the absence of the condition as well as false.
-	if !conditions.IsTrue(cluster, clusterv1.ControlPlaneInitializedCondition) {
+	if !conditions.IsTrue(cluster, clusterv1.ClusterControlPlaneInitializedCondition) {
 		log.Info("Cluster control plane is not initialized, waiting")
 		return r.handleClusterNotInitialized(ctx, scope)
 	}
@@ -243,8 +252,12 @@ func (r *MicroK8sConfigReconciler) handleClusterNotInitialized(ctx context.Conte
 	// initialize the DataSecretAvailableCondition if missing.
 	// this is required in order to avoid the condition's LastTransitionTime to flicker in case of errors surfacing
 	// using the DataSecretGeneratedFailedReason
-	if conditions.GetReason(scope.Config, bootstrapclusterxk8siov1beta1.DataSecretAvailableCondition) != bootstrapclusterxk8siov1beta1.DataSecretGenerationFailedReason {
-		conditions.MarkFalse(scope.Config, bootstrapclusterxk8siov1beta1.DataSecretAvailableCondition, clusterv1.WaitingForControlPlaneAvailableReason, clusterv1.ConditionSeverityInfo, "")
+	if conditions.GetReason(scope.Config, string(bootstrapclusterxk8siov1beta1.DataSecretAvailableCondition)) != bootstrapclusterxk8siov1beta1.DataSecretGenerationFailedReason {
+		conditions.Set(scope.Config, metav1.Condition{
+			Type:   string(bootstrapclusterxk8siov1beta1.DataSecretAvailableCondition),
+			Status: metav1.ConditionFalse,
+			Reason: "WaitingForControlPlaneAvailable",
+		})
 	}
 
 	// if it's NOT a control plane machine, requeue
@@ -277,7 +290,7 @@ func (r *MicroK8sConfigReconciler) handleClusterNotInitialized(ctx context.Conte
 
 	microk8sConfig := &bootstrapclusterxk8siov1beta1.MicroK8sConfig{}
 	if err := r.Client.Get(ctx, client.ObjectKey{
-		Namespace: machine.Spec.Bootstrap.ConfigRef.Namespace,
+		Namespace: machine.Namespace,
 		Name:      machine.Spec.Bootstrap.ConfigRef.Name,
 	}, microk8sConfig); err != nil {
 		return ctrl.Result{}, err
@@ -315,7 +328,7 @@ func (r *MicroK8sConfigReconciler) handleClusterNotInitialized(ctx context.Conte
 		ControlPlaneEndpoint: scope.Cluster.Spec.ControlPlaneEndpoint.Host,
 		Token:                token,
 		TokenTTL:             microk8sConfig.Spec.InitConfiguration.JoinTokenTTLInSecs,
-		KubernetesVersion:    *machine.Spec.Version,
+		KubernetesVersion:    machine.Spec.Version,
 		ClusterAgentPort:     portOfClusterAgent,
 		DqlitePort:           portOfDqlite,
 		Addons:               microk8sConfig.Spec.InitConfiguration.Addons,
@@ -396,7 +409,7 @@ func (r *MicroK8sConfigReconciler) handleJoiningControlPlaneNode(ctx context.Con
 
 	microk8sConfig := &bootstrapclusterxk8siov1beta1.MicroK8sConfig{}
 	if err := r.Client.Get(ctx, client.ObjectKey{
-		Namespace: machine.Spec.Bootstrap.ConfigRef.Namespace,
+		Namespace: machine.Namespace,
 		Name:      machine.Spec.Bootstrap.ConfigRef.Name,
 	}, microk8sConfig); err != nil {
 		return ctrl.Result{}, err
@@ -427,7 +440,7 @@ func (r *MicroK8sConfigReconciler) handleJoiningControlPlaneNode(ctx context.Con
 		Token:                token,
 		TokenTTL:             microk8sConfig.Spec.InitConfiguration.JoinTokenTTLInSecs,
 		JoinNodeIPs:          ipsOfNodesToConnectTo,
-		KubernetesVersion:    *machine.Spec.Version,
+		KubernetesVersion:    machine.Spec.Version,
 		ClusterAgentPort:     portOfNodeToConnectTo,
 		DqlitePort:           portOfDqlite,
 		IPinIP:               microk8sConfig.Spec.InitConfiguration.IPinIP,
@@ -500,7 +513,7 @@ func (r *MicroK8sConfigReconciler) handleJoiningWorkerNode(ctx context.Context, 
 
 	microk8sConfig := &bootstrapclusterxk8siov1beta1.MicroK8sConfig{}
 	if err := r.Client.Get(ctx, client.ObjectKey{
-		Namespace: machine.Spec.Bootstrap.ConfigRef.Namespace,
+		Namespace: machine.Namespace,
 		Name:      machine.Spec.Bootstrap.ConfigRef.Name,
 	}, microk8sConfig); err != nil {
 		return ctrl.Result{}, err
@@ -527,7 +540,7 @@ func (r *MicroK8sConfigReconciler) handleJoiningWorkerNode(ctx context.Context, 
 	workerInput := &cloudinit.WorkerInput{
 		ControlPlaneEndpoint: scope.Cluster.Spec.ControlPlaneEndpoint.Host,
 		Token:                token,
-		KubernetesVersion:    *machine.Spec.Version,
+		KubernetesVersion:    machine.Spec.Version,
 		ClusterAgentPort:     portOfNodeToConnectTo,
 		JoinNodeIPs:          ipOfNodesToConnectTo,
 	}
@@ -580,7 +593,7 @@ func (r *MicroK8sConfigReconciler) getControlPlaneNodesToJoin(ctx context.Contex
 
 	addressesByType := make(map[clusterv1.MachineAddressType][]string)
 	for _, node := range nodes {
-		if node.Spec.ProviderID == nil || node.Status.Phase != "Running" {
+		if node.Spec.ProviderID == "" || node.Status.Phase != "Running" {
 			continue
 		}
 		for _, address := range node.Status.Addresses {
@@ -644,7 +657,11 @@ func (r *MicroK8sConfigReconciler) storeBootstrapData(ctx context.Context, scope
 	}
 	scope.Config.Status.DataSecretName = pointer.StringPtr(secret.Name)
 	scope.Config.Status.Ready = true
-	conditions.MarkTrue(scope.Config, bootstrapclusterxk8siov1beta1.DataSecretAvailableCondition)
+	conditions.Set(scope.Config, metav1.Condition{
+		Type:   string(bootstrapclusterxk8siov1beta1.DataSecretAvailableCondition),
+		Status: metav1.ConditionTrue,
+		Reason: "DataSecretGenerated",
+	})
 	return nil
 }
 
@@ -801,7 +818,7 @@ func (r *MicroK8sConfigReconciler) SetupWithManager(ctx context.Context, mgr ctr
 
 	if feature.Gates.Enabled(feature.MachinePool) {
 		b = b.Watches(
-			&expv1.MachinePool{},
+			&clusterv1.MachinePool{},
 			handler.EnqueueRequestsFromMapFunc(r.MachineToBootstrapMapFunc),
 		).WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue))
 	}
@@ -810,7 +827,7 @@ func (r *MicroK8sConfigReconciler) SetupWithManager(ctx context.Context, mgr ctr
 		&clusterv1.Cluster{},
 		handler.EnqueueRequestsFromMapFunc(r.ClusterToMicroK8sConfigs),
 		builder.WithPredicates(
-			predicates.ClusterUnpausedAndInfrastructureReady(mgr.GetScheme(), mgr.GetLogger()),
+			predicates.ClusterUnpausedAndInfrastructureProvisioned(mgr.GetScheme(), mgr.GetLogger()),
 			predicates.ResourceHasFilterLabel(mgr.GetScheme(), mgr.GetLogger(), r.WatchFilterValue),
 		),
 	)
@@ -844,22 +861,22 @@ func (r *MicroK8sConfigReconciler) ClusterToMicroK8sConfigs(ctx context.Context,
 	}
 
 	for _, m := range machineList.Items {
-		if m.Spec.Bootstrap.ConfigRef != nil &&
-			m.Spec.Bootstrap.ConfigRef.GroupVersionKind().GroupKind() == v1beta1.GroupVersion.WithKind("MicroK8sConfig").GroupKind() {
+		if m.Spec.Bootstrap.ConfigRef.APIGroup == v1beta1.GroupVersion.Group &&
+			m.Spec.Bootstrap.ConfigRef.Kind == "MicroK8sConfig" {
 			name := client.ObjectKey{Namespace: m.Namespace, Name: m.Spec.Bootstrap.ConfigRef.Name}
 			result = append(result, reconcile.Request{NamespacedName: name})
 		}
 	}
 
 	if feature.Gates.Enabled(feature.MachinePool) {
-		machinePoolList := &expv1.MachinePoolList{}
+		machinePoolList := &clusterv1.MachinePoolList{}
 		if err := r.Client.List(ctx, machinePoolList, selectors...); err != nil {
 			return nil
 		}
 
 		for _, mp := range machinePoolList.Items {
-			if mp.Spec.Template.Spec.Bootstrap.ConfigRef != nil &&
-				mp.Spec.Template.Spec.Bootstrap.ConfigRef.GroupVersionKind().GroupKind() == v1beta1.GroupVersion.WithKind("MicroK8sConfig").GroupKind() {
+			if mp.Spec.Template.Spec.Bootstrap.ConfigRef.APIGroup == v1beta1.GroupVersion.Group &&
+				mp.Spec.Template.Spec.Bootstrap.ConfigRef.Kind == "MicroK8sConfig" {
 				name := client.ObjectKey{Namespace: mp.Namespace, Name: mp.Spec.Template.Spec.Bootstrap.ConfigRef.Name}
 				result = append(result, reconcile.Request{NamespacedName: name})
 			}
@@ -872,14 +889,14 @@ func (r *MicroK8sConfigReconciler) ClusterToMicroK8sConfigs(ctx context.Context,
 func (r *MicroK8sConfigReconciler) MachineToBootstrapMapFunc(ctx context.Context, o client.Object) []ctrl.Request {
 	m, ok := o.(*clusterv1.Machine)
 	if !ok {
-		_, ok = o.(*expv1.MachinePool)
+		_, ok = o.(*clusterv1.MachinePool)
 		if !ok {
 			panic(fmt.Sprintf("Expected a Machine or MachinePool but got a %T", o))
 		}
 	}
 
 	result := []ctrl.Request{}
-	if m.Spec.Bootstrap.ConfigRef != nil && m.Spec.Bootstrap.ConfigRef.GroupVersionKind() == v1beta1.GroupVersion.WithKind("MicroK8sConfig") {
+	if m.Spec.Bootstrap.ConfigRef.APIGroup == v1beta1.GroupVersion.Group && m.Spec.Bootstrap.ConfigRef.Kind == "MicroK8sConfig" {
 		name := client.ObjectKey{Namespace: m.Namespace, Name: m.Spec.Bootstrap.ConfigRef.Name}
 		result = append(result, ctrl.Request{NamespacedName: name})
 	}
